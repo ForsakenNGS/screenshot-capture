@@ -1,7 +1,7 @@
 {
   "name": "screenshot-capture",
   "version": "1.0.0",
-  "description": "",
+  "description": "NodeJS module for taking screenshots of windows or desktop sections",
   "main": "index.js",
   "scripts": {
     "test": "node test/basic.js"
