@@ -1,5 +1,5 @@
 {
-  "name": "screenshot-capture",
+  "name": "@ForsakenNGS/screenshot-capture",
   "version": "1.0.0",
   "description": "NodeJS module for taking screenshots of windows or desktop sections",
   "main": "index.js",
