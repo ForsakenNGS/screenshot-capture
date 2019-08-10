@@ -1,0 +1,20 @@
+{
+  "name": "screenshot-capture",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test/basic.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ForsakenNGS/screenshot-capture.git"
+  },
+  "keywords": [],
+  "author": "Jens N",
+  "license": "GPL-3.0",
+  "bugs": {
+    "url": "https://github.com/ForsakenNGS/screenshot-capture/issues"
+  },
+  "homepage": "https://github.com/ForsakenNGS/screenshot-capture#readme"
+}
