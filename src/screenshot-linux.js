@@ -5,6 +5,8 @@ const regexpScreen = /^(.+) connected (primary )?([0-9]+)x([0-9]+)\+([0-9]+)\+([
 const regexpResolution = /^\s+([0-9]+)x([0-9]+)\s+(.+)$/;
 const regexpWindow = /^(\s+)0x([0-9a-f]+) (\(has no name\)|"(.+)"): \(("([^"]*)")?\s?("([^"]*)")\)\s+([0-9]+)x([0-9]+)\+([0-9-]+)\+([0-9-]+)\s+\+([0-9-]+)\+([0-9-]+)/;
 
+let screenshotTools = null;
+
 class ScreenshotLinux extends ScreenshotGeneric {
 
   /**
@@ -12,8 +14,17 @@ class ScreenshotLinux extends ScreenshotGeneric {
    * @param cropObject
    * @returns {string}
    */
-  static getCropString(cropObject) {
+  static getCropStringImagick(cropObject) {
     return cropObject.size.width+'x'+cropObject.size.height+'+'+cropObject.offset.x+'+'+cropObject.offset.y;
+  }
+
+  /**
+   * Get the string version of the given crop object for use with Scrot
+   * @param cropObject
+   * @returns {string}
+   */
+  static getCropStringScrot(cropObject) {
+    return cropObject.offset.x+','+cropObject.offset.y+','+cropObject.size.width+','+cropObject.size.height;
   }
 
   /**
@@ -134,12 +145,126 @@ class ScreenshotLinux extends ScreenshotGeneric {
     });
   }
 
+  static detectTools() {
+    if (screenshotTools === null) {
+      screenshotTools = [];
+      let tests = [];
+      tests.push(new Promise((resolve, reject) => {
+        exec("import --version", (error, output) => {
+          // TODO: Check version requirements?
+          if (!error) {
+            screenshotTools.push("Imagick");
+          }
+          resolve();
+        });
+      }));
+      tests.push(new Promise((resolve, reject) => {
+        exec("scrot --version", (error, output) => {
+          // TODO: Check version requirements?
+          if (!error) {
+            screenshotTools.push("Scrot");
+          }
+          resolve();
+        });
+      }));
+      return Promise.all(tests);
+    } else {
+      return Promise.resolve();
+    }
+  }
+
   /**
    * Capture a screenshot
    * @param options
    * @returns {Promise<Buffer>}
    */
-  static capture(options = {}) {
+  static capture(options = {}, targetTool = null) {
+    // Default format
+    if (!options.hasOwnProperty("format")) {
+      options.format = "PNG";
+    }
+    // Screenshot tool
+    return this.detectTools().then(() => {
+      if (targetTool === null) {
+        if (screenshotTools.indexOf("Scrot") >= 0) {
+          targetTool = "Scrot";
+        } else if (screenshotTools.length > 0) {
+          targetTool = screenshotTools[0];
+        }
+      }
+      if (targetTool === "Scrot") {
+        if ((options.target.type === "window") && !options.target.foreground) {
+          // Options not supported by Scrot! Switch to Imagick.
+          if (screenshotTools.indexOf("Imagick") >= 0) {
+            targetTool = "Imagick";
+          }
+        }
+      }
+      switch (targetTool) {
+        case "Imagick":
+          return this.captureImagick(options);
+        case "Scrot":
+          return this.captureScrot(options);
+        default:
+          return Promise.reject(new Error("No usable screenshot tool available!"));
+      }
+    });
+  }
+
+  /**
+   * Capture a screenshot
+   * @param options
+   * @returns {Promise<Buffer>}
+   */
+  static captureScrot(options = {}) {
+    return new Promise((resolve, reject) => {
+      let crop = null;
+      // Build command
+      let execCmd = 'scrot';
+      // -> Target
+      switch (options.target.type) {
+        case 'window':
+          if (!options.target.foreground) {
+            reject(new Error("Cannot take screenshots of background windows using 'scrot'"));
+            return;
+          }
+        case 'screen':
+          crop = super.getCropObject(options.target.size.width, options.target.size.height, options.target.offset.x, options.target.offset.y);
+          break;
+      }
+      // -> Crop
+      if (typeof options.crop !== 'undefined') {
+        crop.size.width = options.crop.size.width;
+        crop.size.height = options.crop.size.height;
+        crop.offset.x += options.crop.offset.x;
+        crop.offset.y += options.crop.offset.y;
+      }
+      execCmd += ' -a '+ScreenshotLinux.getCropStringScrot(crop);
+      // -> Format and Filename
+      let filename = ((new Date()).getTime() * 1000)+options.format.toLowerCase();
+      execCmd += ' /tmp/'+filename+' && cat /tmp/'+filename+' && rm /tmp/'+filename; // Output to stdout
+      // Set exec options
+      let execOptions = {
+        encoding: 'buffer',
+        maxBuffer: super.getBufferSize(crop.size.width, crop.size.height, 32)
+      };
+      // Run now
+      exec(execCmd, execOptions, (error, output) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(output);
+        }
+      });
+    });
+  }
+
+  /**
+   * Capture a screenshot
+   * @param options
+   * @returns {Promise<Buffer>}
+   */
+  static captureImagick(options = {}) {
     return new Promise((resolve, reject) => {
       let crop = null;
       // Build command
@@ -147,8 +272,15 @@ class ScreenshotLinux extends ScreenshotGeneric {
       // -> Target
       switch (options.target.type) {
         case 'window':
-          execCmd += ' -window ' + options.target.ident;
-          crop = super.getCropObject(options.target.size.width, options.target.size.height);
+          if (options.target.foreground) {
+            // Window is in foreground, use faster method via "-window root"
+            execCmd += ' -window root';
+            crop = super.getCropObject(options.target.size.width, options.target.size.height, options.target.offset.x, options.target.offset.y);
+          } else {
+            // Window is in background, use slower method
+            execCmd += ' -window ' + options.target.ident;
+            crop = super.getCropObject(options.target.size.width, options.target.size.height);
+          }
           break;
         case 'screen':
           execCmd += ' -window root';
@@ -162,13 +294,9 @@ class ScreenshotLinux extends ScreenshotGeneric {
         crop.offset.x += options.crop.offset.x;
         crop.offset.y += options.crop.offset.y;
       }
-      execCmd += ' -crop '+ScreenshotLinux.getCropString(crop);
+      execCmd += ' -crop '+ScreenshotLinux.getCropStringImagick(crop);
       // -> Format and Filename
-      let format = 'PNG';
-      if (typeof options.format !== 'undefined') {
-        format = options.format.toUpperCase();
-      }
-      execCmd += ' "'+format+'":"-"'; // Output to stdout
+      execCmd += ' "'+options.format.toUpperCase()+'":"-"'; // Output to stdout
       // Set exec options
       let execOptions = {
         encoding: 'buffer',
