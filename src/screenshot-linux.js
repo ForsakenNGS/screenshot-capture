@@ -241,7 +241,7 @@ class ScreenshotLinux extends ScreenshotGeneric {
       }
       execCmd += ' -a '+ScreenshotLinux.getCropStringScrot(crop);
       // -> Format and Filename
-      let filename = ((new Date()).getTime() * 1000)+options.format.toLowerCase();
+      let filename = ((new Date()).getTime() * 1000)+"."+options.format.toLowerCase();
       execCmd += ' /tmp/'+filename+' && cat /tmp/'+filename+' && rm /tmp/'+filename; // Output to stdout
       // Set exec options
       let execOptions = {
